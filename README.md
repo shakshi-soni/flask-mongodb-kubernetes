@@ -33,6 +33,7 @@ mongo-pvc --> mongo-pv (hostPath, 1Gi)
 flask-mongodb-kubernetes/
 ├── app.py
 ├── requirements.txt
+├── .gitingore
 ├── Dockerfile
 ├── README.md
 └── k8s/
