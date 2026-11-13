@@ -264,8 +264,7 @@ kubectl get pods -w
 ```
 
 The new `mongodb-0` was `1/1 Running` about 11 seconds later. I called `GET /data` again and it still returned `sampleKey: sampleValue`, so the data survived the restart.
-
-![After deleting the MongoDB pod]<img width="1795" height="560" alt="image" src="https://github.com/user-attachments/assets/5aad53f3-b226-4a50-910e-be172d1d7d17" />
+<img width="1795" height="560" alt="image" src="https://github.com/user-attachments/assets/5aad53f3-b226-4a50-910e-be172d1d7d17" />
 
 
 ### C. Autoscaling under high traffic
