@@ -1,6 +1,6 @@
 # Flask + MongoDB on Kubernetes
 
-A small Flask app that stores data in MongoDB, deployed on a local Kubernetes cluster (Minikube). The app has two endpoints:
+A small Flask app that stores data in MongoDB, deployed on a local Kubernetes cluster (Minikube). The app has two routes, and `/data` handles both POST and GET:
 
 - `GET /` shows a welcome message with the current time.
 - `POST /data` saves a JSON document in MongoDB.
@@ -33,7 +33,7 @@ mongo-pvc --> mongo-pv (hostPath, 1Gi)
 flask-mongodb-kubernetes/
 ├── app.py
 ├── requirements.txt
-├── .gitingore
+├── .gitignore
 ├── Dockerfile
 ├── README.md
 └── k8s/
@@ -55,14 +55,13 @@ flask-mongodb-kubernetes/
 
 I used newer library versions than the ones in the assignment sheet (Flask 2.0.2, pymongo 3.12.0). The old versions are known to clash with newer Python versions and newer MongoDB servers. The app code works the same on both.
 
-## Part 1: Local setup (short note)
+## Part 1 note: virtual environments
 
-I first ran the app locally with a virtual environment and a MongoDB container, and checked all three endpoints with curl.
+Part 1 was local preparation and did not need to be submitted, so everything below is Part 2. The sheet does ask why a virtual environment is useful, so here is my answer:
 
-**Why use a virtual environment?**
 - Each project gets its own packages, so one project's versions do not break another's.
-- It keeps my system Python clean.
-- `requirements.txt` plus a venv makes the setup easy to repeat on any machine.
+- It keeps the system Python clean.
+- `requirements.txt` plus a virtual environment makes the setup easy to repeat on any machine.
 
 ## Part 2: Kubernetes deployment
 
@@ -103,6 +102,8 @@ docker build -t shakshi18soni/flask-mongo-app:1.0 .
 
 The Dockerfile uses `python:3.11-slim`, installs the packages from `requirements.txt`, copies `app.py`, and starts the app with Gunicorn on port 5000.
 
+The only change I made to `app.py` is for authentication. It has no username or password in it. It reads the full connection string from the `MONGODB_URI` environment variable, and Kubernetes fills that in from a Secret.
+
 ### 3. Push the image to Docker Hub
 
 ```
@@ -133,11 +134,9 @@ Check that everything is running:
 kubectl get pods,svc,pv,pvc,hpa
 ```
 
-here is the proof:
-<img width="1919" height="870" alt="image" src="https://github.com/user-attachments/assets/6ec51328-1381-4e29-8f7f-9297f15622cf" />
+You should see `mongodb-0` and two `flask-app` pods as `1/1 Running`, and the PVC as `Bound`. This is what mine looked like:
 
-
-You should see `mongodb-0` and two `flask-app` pods as `1/1 Running`, and the PVC as `Bound`.
+![All resources running](https://github.com/user-attachments/assets/6ec51328-1381-4e29-8f7f-9297f15622cf)
 
 ### 5. Access the application
 
@@ -211,6 +210,8 @@ Both Flask and MongoDB use the values from the assignment:
 | CPU | 200m (0.2 CPU) | 500m (0.5 CPU) |
 | Memory | 250Mi | 500Mi |
 
+The sheet writes the memory values as 250M and 500M. I used `Mi`, which is the usual Kubernetes unit and is very close in size.
+
 **Request** is the amount Kubernetes reserves for the container. The scheduler uses it to decide which node has enough room for the pod. It is a guarantee.
 
 **Limit** is the maximum the container is allowed to use. If it goes over the CPU limit, it gets slowed down (throttled). If it goes over the memory limit, it gets killed (OOMKilled) and restarted.
@@ -241,17 +242,19 @@ The Secret in this repo is plain YAML with a demo password. In a real project I 
 
 ## Testing
 
+Everything below was run on my own Minikube cluster.
+
 ### A. Database operations
 
 I tested all three endpoints through the tunnel URL.
 
-1. `GET /` returned the welcome message with the time.
-2. `POST /data` returned `{"status": "Data inserted"}`.
-3. `GET /data` returned the saved document.
+1. `GET /` returned `Welcome to the Flask app! The current time is: 2026-11-13 05:32:41.276503`.
+2. `POST /data` returned `Data inserted`.
+3. `GET /data` returned `sampleKey: sampleValue`.
 
-Results:
+This also shows that Flask connects to the password-protected MongoDB through the service name.
 
-> **TODO: paste your screenshots or terminal output for the three requests here.**
+![Endpoint tests](screenshots/endpoints.png)
 
 ### B. Data persistence
 
@@ -262,11 +265,9 @@ kubectl delete pod mongodb-0
 kubectl get pods -w
 ```
 
-After the new `mongodb-0` was `Running` again, I called `GET /data`.
+The new `mongodb-0` was `1/1 Running` about 11 seconds later. I called `GET /data` again and it still returned `sampleKey: sampleValue`, so the data survived the restart.
 
-Result:
-
-> **TODO: paste the output showing the data is still there after the pod restarted.**
+![After deleting the MongoDB pod](screenshots/persistence.png)
 
 ### C. Autoscaling under high traffic
 
@@ -290,23 +291,41 @@ kubectl get hpa -w
 kubectl get pods -w
 ```
 
-When I was done, I removed the load and watched the replicas scale back down. Scale-down is slower on purpose, because Kubernetes waits about 5 minutes before removing pods:
-
-```
-kubectl delete pod load-generator-1 load-generator-2 load-generator-3
-```
-
 Results:
 
-> **TODO: paste the `kubectl get hpa -w` output showing CPU going above 70% and replicas going from 2 up to 5 (or the number you reached), and then back down.**
+- Before the load there were 2 replicas and CPU was about 1% (`1%/70%`).
+- CPU went above 70% and the HPA scaled from 2 to 3 replicas. `kubectl describe hpa flask-hpa` shows a `SuccessfulRescale` event: "New size: 3; reason: cpu resource utilization (percentage of request) above target".
+- With 3 replicas the average CPU settled between 54% and 59%. That is below the target, so it stayed at 3. I added two more load generators (5 in total) and it made no difference. **It never reached the maximum of 5 replicas.** My guess is that each load pod sends only one request at a time, so they cannot push CPU much higher. I did not confirm that.
+- When I deleted the load pods, CPU dropped from about 48% to about 1%, and a few minutes later the replicas went back down to 2. Scale-down is slower on purpose, because Kubernetes waits before removing pods.
+
+```
+kubectl delete pod load-generator-1 load-generator-2 load-generator-3 load-generator-4 load-generator-5
+```
+
+![HPA scaling up](screenshots/hpa-scale-up.png)
+
+![HPA scaling back down](screenshots/hpa-scale-down.png)
+
+### D. Other checks
+
+**MongoDB authentication.** From inside the MongoDB pod I ran `mongosh` twice. With a wrong password it failed with `MongoServerError: Authentication failed.` With the correct password it returned `{ ok: 1 }`.
+
+**Resource requests and limits.** I read them back with `kubectl get ... -o jsonpath`. Both MongoDB and Flask show requests of `200m` CPU and `250Mi` memory, and limits of `500m` CPU and `500Mi` memory.
+
+**DNS.** I ran `nslookup mongodb-service` from a temporary busybox pod. It resolved `mongodb-service.default.svc.cluster.local` to `10.244.0.7`. The `NXDOMAIN` lines printed before that are normal. The pod tries the short name against each search domain first, and only the full service name matches.
+
+**A Flask pod failing.** I deleted one Flask pod. Kubernetes created a replacement on its own right away. It showed `0/1` for a short while and then `1/1`, and the Deployment was back to 2 pods.
+
+**Final state.** `kubectl get pods,svc,pv,pvc,hpa` showed 2 Flask pods and `mongodb-0` all `1/1 Running`, the PVC `Bound`, and the HPA at 2 replicas with CPU at 1%. That is the screenshot in step 4.
 
 ### Issues I ran into
 
 - **Docker and kubectl "not recognized" in the terminal.** I had opened VS Code before installing the tools, so the terminal did not know the new paths. Closing and reopening VS Code fixed it. Minikube and kubectl also needed their own install.
-- **Pods stuck on `ContainerCreating` for a few minutes.** The events showed normal `Pulling image` messages with no errors. The MongoDB image is large and my connection was slow, so it just took time.
+- **Pods stuck on `ContainerCreating` for several minutes.** It took close to ten minutes in total. The events showed normal `Pulling image` messages with no errors. The MongoDB image is large and my connection was slow, so I think it just took time.
 - **HPA showed `<unknown>/70%` at first.** The metrics server was still starting up. It started showing real numbers after a couple of minutes.
-
-> **TODO: add any other issue you hit during the load test or persistence test, and how you fixed it.**
+- **The app address kept changing.** The URL from `minikube service flask-service --url` gets a new port every time the tunnel restarts, and the terminal has to stay open. I had to copy the new port a few times. `kubectl port-forward svc/flask-service 5000:5000` would be steadier.
+- **The autoscaler stopped at 3 replicas.** As described above, my load generators could not push CPU high enough to reach 5. I wrote down what really happened.
+- **One `FailedGetScale ... Unauthorized` warning** appeared in the HPA events during the load test. Scaling kept working (`ScalingActive: True`), and I did not find the cause.
 
 ## Clean up
 
