@@ -133,6 +133,10 @@ Check that everything is running:
 kubectl get pods,svc,pv,pvc,hpa
 ```
 
+here is the proof:
+<img width="1919" height="870" alt="image" src="https://github.com/user-attachments/assets/6ec51328-1381-4e29-8f7f-9297f15622cf" />
+
+
 You should see `mongodb-0` and two `flask-app` pods as `1/1 Running`, and the PVC as `Bound`.
 
 ### 5. Access the application
