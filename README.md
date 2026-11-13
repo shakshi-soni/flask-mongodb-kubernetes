@@ -302,9 +302,6 @@ Results:
 kubectl delete pod load-generator-1 load-generator-2 load-generator-3 load-generator-4 load-generator-5
 ```
 
-![HPA scaling up](screenshots/hpa-scale-up.png)
-
-![HPA scaling back down](screenshots/hpa-scale-down.png)
 
 ### D. Other checks
 
